@@ -35,10 +35,6 @@ app.add_middleware(
 os.makedirs("static/results", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 # ========== 调用R进行反演 ==========
-app = FastAPI()
-
-
-# 定义前端传过来的数据结构格式
 # ================= 新增：挂载静态目录 =================
 # 确保项目目录下有一个 static/results 文件夹
 os.makedirs("static/results", exist_ok=True)
@@ -48,79 +44,79 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ====================================================
 
-class PixelData(BaseModel):
-    X: list[float]
-    Y: list[float]
-    R: list[float]
-    G: list[float]
-    B: list[float]
-
-
-@app.post("/api/inversion/stitched")
-async def process_stitched_image(
-        file: UploadFile = File(...),
-        overlap: int = Form(default=85)
-):
-    temp_image_path = f"temp_{file.filename}"
-
-    try:
-        # 1. 接收并保存前端传来的真实图片文件
-        image_bytes = await file.read()
-        with open(temp_image_path, "wb") as f:
-            f.write(image_bytes)
-
-        # 2. 使用 rasterio 读取图像并提取像素特征
-        with rasterio.open(temp_image_path) as src:
-            # 读取前三个波段 (通常是 R, G, B)
-            # flatten() 将二维矩阵展平为一维数组
-            band_r = src.read(1).flatten()
-
-            # 兼容单波段灰度图或双波段图像的情况
-            band_g = src.read(2).flatten() if src.count >= 2 else band_r
-            band_b = src.read(3).flatten() if src.count >= 3 else band_r
-
-            # 构建图像的像素坐标网格 (X 为列号，Y 为行号)
-            cols, rows = np.meshgrid(np.arange(src.width), np.arange(src.height))
-            x_coords = cols.flatten()
-            y_coords = rows.flatten()
-
-        # 3. 组装为 Pandas DataFrame
-        df = pd.DataFrame({
-            'X': x_coords,
-            'Y': y_coords,
-            'R': band_r,
-            'G': band_g,
-            'B': band_b
-        })
-
-        # 4. 内存优化：剔除无效背景像素 (NoData)
-        # 无人机拼接影像边缘通常有大量纯黑 (0,0,0) 或纯白 (255,255,255) 的无效区域
-        # 将这些像素过滤掉，可大幅减轻 R 语言模型的运算压力和内存占用
-        valid_pixels_mask = ~((df['R'] == 0) & (df['G'] == 0) & (df['B'] == 0)) & \
-                            ~((df['R'] == 255) & (df['G'] == 255) & (df['B'] == 255))
-
-        clean_df = df[valid_pixels_mask].copy()
-
-        # 5. 传递给 R 语言引擎进行反演计算
-        # result 字典应包含 'dataframe' 和 'filename'
-        result = run_inversion_model(clean_df)
-
-        # 6. 拼接生成的图片 URL
-        image_url = f"http://localhost:5173/static/results/{result['filename']}"
-
-        return {
-            "status": "success",
-            "message": "反演计算完成",
-            "image_url": image_url
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"图像处理或反演计算失败: {str(e)}")
-
-    finally:
-        # 7. 无论成功还是失败，最后强制清理临时文件释放硬盘空间
-        if os.path.exists(temp_image_path):
-            os.remove(temp_image_path)
+# class PixelData(BaseModel):
+#     X: list[float]
+#     Y: list[float]
+#     R: list[float]
+#     G: list[float]
+#     B: list[float]
+#
+#
+# @app.post("/api/inversion/stitched")
+# async def process_stitched_image(
+#         file: UploadFile = File(...),
+#         overlap: int = Form(default=85)
+# ):
+#     temp_image_path = f"temp_{file.filename}"
+#
+#     try:
+#         # 1. 接收并保存前端传来的真实图片文件
+#         image_bytes = await file.read()
+#         with open(temp_image_path, "wb") as f:
+#             f.write(image_bytes)
+#
+#         # 2. 使用 rasterio 读取图像并提取像素特征
+#         with rasterio.open(temp_image_path) as src:
+#             # 读取前三个波段 (通常是 R, G, B)
+#             # flatten() 将二维矩阵展平为一维数组
+#             band_r = src.read(1).flatten()
+#
+#             # 兼容单波段灰度图或双波段图像的情况
+#             band_g = src.read(2).flatten() if src.count >= 2 else band_r
+#             band_b = src.read(3).flatten() if src.count >= 3 else band_r
+#
+#             # 构建图像的像素坐标网格 (X 为列号，Y 为行号)
+#             cols, rows = np.meshgrid(np.arange(src.width), np.arange(src.height))
+#             x_coords = cols.flatten()
+#             y_coords = rows.flatten()
+#
+#         # 3. 组装为 Pandas DataFrame
+#         df = pd.DataFrame({
+#             'X': x_coords,
+#             'Y': y_coords,
+#             'R': band_r,
+#             'G': band_g,
+#             'B': band_b
+#         })
+#
+#         # 4. 内存优化：剔除无效背景像素 (NoData)
+#         # 无人机拼接影像边缘通常有大量纯黑 (0,0,0) 或纯白 (255,255,255) 的无效区域
+#         # 将这些像素过滤掉，可大幅减轻 R 语言模型的运算压力和内存占用
+#         valid_pixels_mask = ~((df['R'] == 0) & (df['G'] == 0) & (df['B'] == 0)) & \
+#                             ~((df['R'] == 255) & (df['G'] == 255) & (df['B'] == 255))
+#
+#         clean_df = df[valid_pixels_mask].copy()
+#
+#         # 5. 传递给 R 语言引擎进行反演计算
+#         # result 字典应包含 'dataframe' 和 'filename'
+#         result = run_inversion_model(clean_df)
+#
+#         # 6. 拼接生成的图片 URL
+#         image_url = f"/static/results/{result['filename']}"
+#
+#         return {
+#             "status": "success",
+#             "message": "反演计算完成",
+#             "image_url": image_url
+#         }
+#
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"图像处理或反演计算失败: {str(e)}")
+#
+#     finally:
+#         # 7. 无论成功还是失败，最后强制清理临时文件释放硬盘空间
+#         if os.path.exists(temp_image_path):
+#             os.remove(temp_image_path)
 # ========== 配置（零基础直接复制） ==========
 # JWT密钥（随便写一个长字符串，用于加密登录状态）
 SECRET_KEY = "your-secret-key-water-monitor-2026"
